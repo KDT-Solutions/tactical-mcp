@@ -32,7 +32,7 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    security_opt:
-      - no-new-privileges:true
+    # Kein security_opt: Portainer lässt das nur für Admin-Benutzer zu, der Stack
+    # soll aber auch über den nicht-admin Benutzer von infra-mcp deploybar sein.
     cap_drop:
       - ALL

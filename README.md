@@ -29,6 +29,7 @@ Ad-hoc-Scripts, Scripts aus der Bibliothek, Dienste, Prozesse, Neustart, Updates
   Status, Dauer). API-Keys erscheinen weder in Ausgaben noch in Logs; von Env-Variablen in Scripts
   zeigt die Vorschau nur die Namen.
 - Container läuft als Nicht-root, read-only Root-FS, ohne Capabilities, ohne Docker-Socket.
+  `security_opt` fehlt bewusst, weil Portainer es nur Admin-Benutzern erlaubt.
 
 Zusätzlich protokolliert Tactical selbst jeden Befehl und jedes Script im Agent-Verlauf und im Audit-Log
 unter dem Benutzer des API-Keys.
