@@ -1,0 +1,38 @@
+services:
+  tactical-mcp:
+    # Fertiges Image aus der GitHub Container Registry - wird per GitHub Actions
+    # bei jeder neuen Version gebaut (.github/workflows/docker-publish.yml).
+    # Statt :latest kann eine feste Version (z.B. :0.1.0) eingetragen werden.
+    image: ghcr.io/kdt-solutions/tactical-mcp:latest
+    pull_policy: always
+    container_name: tactical-mcp
+    restart: unless-stopped
+    environment:
+      # Tactical-RMM-API, z.B. https://api.rmm.example.com
+      - TRMM_URL=${TRMM_URL}
+      # API-Key des eigenen Tactical-Benutzers "mcp" (nicht des Admins)
+      - TRMM_API_KEY=${TRMM_API_KEY}
+      - TRMM_TLS_VERIFY=${TRMM_TLS_VERIFY:-1}
+      # 1 = nur lesen, alle ausführenden/ändernden Tools gesperrt
+      - TRMM_READ_ONLY=${TRMM_READ_ONLY:-0}
+      # Hostnamen/Agent-IDs (fnmatch-Muster, kommagetrennt), auf denen nichts ausgeführt wird
+      - PROTECTED_AGENTS=${PROTECTED_AGENTS:-}
+      # Zusätzliche gesperrte Befehlsmuster (Regex, getrennt durch ;;)
+      - BLOCKED_COMMAND_PATTERNS=${BLOCKED_COMMAND_PATTERNS:-}
+      - MAX_TIMEOUT=${MAX_TIMEOUT:-600}
+      - MAX_OUTPUT_CHARS=${MAX_OUTPUT_CHARS:-30000}
+      # Statisches Bearer-Token für den Connector (z.B. openssl rand -hex 32)
+      - MCP_API_KEY=${MCP_API_KEY}
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+    ports:
+      # Wie die übrigen MCP-Stacks: NPM leitet auf <Host-IP>:<Host-Port> weiter,
+      # TLS macht NPM, Zugriffskontrolle ist das zwingende MCP_API_KEY.
+      - "${MCP_BIND_ADDR:-0.0.0.0}:${MCP_HOST_PORT:-8428}:8000"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
