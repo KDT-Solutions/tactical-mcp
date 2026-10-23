@@ -10,7 +10,7 @@ def main() -> int:
     port = os.environ.get("MCP_PORT", "8000")
     req = urllib.request.Request(
         f"http://127.0.0.1:{port}/healthz",
-        headers={"Authorization": f"Bearer {os.environ.get('MCP_API_KEY', '')}"},
+        headers={"Authorization": f"Bearer {os.environ.get('MCP_API_KEY', '').strip()}"},
     )
     try:
         with urllib.request.urlopen(req, timeout=4) as resp:

@@ -29,6 +29,23 @@ logging.basicConfig(
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logger = logging.getLogger("tactical_mcp")
 
+# Mindestlänge des Bearer-Tokens (openssl rand -hex 32 ergibt 64 Zeichen).
+MIN_API_KEY_LEN = 32
+
+
+def _checked_api_key(raw: str | None) -> str:
+    """Token trimmen und Mindestlänge erzwingen - ohne brauchbares Token kein Start."""
+    key = (raw or "").strip()
+    if not key:
+        raise RuntimeError(
+            "MCP_API_KEY (statisches Bearer-Token) fehlt - aus Sicherheitsgründen kein Start ohne Token."
+        )
+    if len(key) < MIN_API_KEY_LEN:
+        raise RuntimeError(
+            f"MCP_API_KEY ist zu kurz (mindestens {MIN_API_KEY_LEN} Zeichen, z.B. openssl rand -hex 32)."
+        )
+    return key
+
 
 class _BearerAuthMiddleware:
     """Minimalistische ASGI-Middleware: prüft 'Authorization: Bearer <token>'."""
@@ -67,10 +84,7 @@ def _with_healthz(app):
 
 
 def _build_http_app(api_key: str, host: str = "0.0.0.0"):
-    if not api_key:
-        raise RuntimeError(
-            "MCP_API_KEY (statisches Bearer-Token) fehlt - aus Sicherheitsgründen kein Start ohne Token."
-        )
+    api_key = _checked_api_key(api_key)
     from mcp.server.transport_security import TransportSecuritySettings
     from starlette.middleware.cors import CORSMiddleware
 
@@ -111,11 +125,7 @@ async def _run_http_server(api_key: str, host: str, port: int) -> None:
 
 
 def main() -> None:
-    api_key = os.environ.get("MCP_API_KEY", "")
-    if not api_key:
-        raise RuntimeError(
-            "MCP_API_KEY (statisches Bearer-Token) fehlt - aus Sicherheitsgründen kein Start ohne Token."
-        )
+    api_key = _checked_api_key(os.environ.get("MCP_API_KEY"))
     host = os.environ.get("MCP_HOST", "0.0.0.0")
     port = int(os.environ.get("MCP_PORT", "8000"))
     asyncio.run(_run_http_server(api_key, host, port))

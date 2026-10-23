@@ -25,8 +25,9 @@ INSTRUCTIONS = (
     "Dienste, Prozesse, Eventlogs, Checks, Tasks, Windows-Updates, Alerts und Verlauf auslesen sowie "
     "Befehle (cmd, PowerShell, bash), Ad-hoc-Scripts und gespeicherte Scripts auf Agents ausführen. "
     "Agents können per Hostname oder Agent-ID angegeben werden. Alles, was auf einem Agent etwas ausführt "
-    "oder ändert, läuft nur mit confirm=true; ohne confirm kommt eine Vorschau. Für Diagnosen zuerst "
-    "lesende Tools nutzen. Geschützte Agents und gesperrte Befehlsmuster werden blockiert."
+    "oder ändert, läuft nur mit confirm=true; ohne confirm kommt eine Vorschau. Befehle und Scripts sind "
+    "nur verfügbar, wenn der Server mit MCP_ALLOW_EXEC=1 läuft. Für Diagnosen zuerst lesende Tools nutzen. "
+    "Geschützte Agents (auch über Policies) und gesperrte Befehlsmuster werden blockiert."
 )
 
 mcp = MCPServer("tactical-mcp", version=__version__, instructions=INSTRUCTIONS)

@@ -10,19 +10,20 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 TRMM_URL = "https://api.rmm.example.com"
 TRMM_KEY = "trmm-test-api-key-value"
+MCP_KEY = "test-mcp-api-key-0123456789abcdef0123456789abcdef"
 WIN_ID = "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcd"
 LIN_ID = "ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210zyxw"
 OFF_ID = "OfflineAgentIdentifier000000000000000000"
 DC_ID = "DomainControllerIdentifier00000000000000"
 
 AGENTS = [
-    {"hostname": "PC-OFFICE01", "agent_id": WIN_ID, "client_name": "Example AG", "site_name": "Hauptsitz",
+    {"id": 1, "hostname": "PC-OFFICE01", "agent_id": WIN_ID, "client_name": "Example AG", "site_name": "Hauptsitz",
      "status": "online", "plat": "windows", "monitoring_type": "workstation", "logged_username": "anna"},
-    {"hostname": "nas-backup", "agent_id": LIN_ID, "client_name": "Example AG", "site_name": "Hauptsitz",
+    {"id": 2, "hostname": "nas-backup", "agent_id": LIN_ID, "client_name": "Example AG", "site_name": "Hauptsitz",
      "status": "online", "plat": "linux", "monitoring_type": "server"},
-    {"hostname": "PC-LAGER", "agent_id": OFF_ID, "client_name": "Muster GmbH", "site_name": "Lager",
+    {"id": 3, "hostname": "PC-LAGER", "agent_id": OFF_ID, "client_name": "Muster GmbH", "site_name": "Lager",
      "status": "offline", "plat": "windows", "monitoring_type": "workstation"},
-    {"hostname": "SRV-DC01", "agent_id": DC_ID, "client_name": "Muster GmbH", "site_name": "Lager",
+    {"id": 4, "hostname": "SRV-DC01", "agent_id": DC_ID, "client_name": "Muster GmbH", "site_name": "Lager",
      "status": "online", "plat": "windows", "monitoring_type": "server"},
 ]
 
@@ -34,8 +35,9 @@ def env(monkeypatch):
         "TRMM_API_KEY": TRMM_KEY,
         "TRMM_TLS_VERIFY": "1",
         "TRMM_READ_ONLY": "0",
+        "MCP_ALLOW_EXEC": "1",
         "PROTECTED_AGENTS": "srv-dc*",
-        "MCP_API_KEY": "test-mcp-api-key",
+        "MCP_API_KEY": MCP_KEY,
     }
     for k, v in values.items():
         monkeypatch.setenv(k, v)

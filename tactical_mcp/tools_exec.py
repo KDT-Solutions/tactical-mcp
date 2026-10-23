@@ -3,8 +3,9 @@ gespeicherte Scripts, Dienste, Prozesse, Reboot, Updates, Checks, Tasks,
 Wartungsmodus, Notizen, Alerts.
 
 Für alle gilt: TRMM_READ_ONLY sperrt sie, geschützte Agents werden blockiert,
-ohne confirm=true kommt nur eine Vorschau. Gelöscht wird nichts (keine Agents,
-Clients, Sites oder Scripts).
+ohne confirm=true kommt nur eine Vorschau. Befehle und Scripts (trmm_run_command,
+trmm_run_script_code, trmm_run_script) brauchen zusätzlich MCP_ALLOW_EXEC=1 auf
+dem Server. Gelöscht wird nichts (keine Agents, Clients, Sites oder Scripts).
 """
 
 from __future__ import annotations
@@ -18,9 +19,13 @@ from .errors import GuardError
 WINDOWS_ONLY = "nur für Windows-Agents verfügbar"
 
 
-async def _target(agent: str, need_online: bool = True) -> dict[str, Any]:
-    """Prüfungen, die vor jeder Aktion auf einem Agent laufen."""
-    guard.require_writable()
+async def _target(agent: str, need_online: bool = True, exec_: bool = False) -> dict[str, Any]:
+    """Prüfungen, die vor jeder Aktion auf einem Agent laufen.
+    exec_=True: zusätzlich MCP_ALLOW_EXEC verlangen (Befehle und Scripts)."""
+    if exec_:
+        guard.require_exec()
+    else:
+        guard.require_writable()
     a = await resolve_agent(agent)
     guard.check_agent_allowed(a)
     if need_online and str(a.get("status", "")).lower() != "online":
@@ -71,8 +76,9 @@ async def trmm_run_command(
 
     shell: powershell oder cmd (Windows), bash (Linux/macOS). timeout: Sekunden.
     run_as_user: im Kontext des angemeldeten Benutzers statt als SYSTEM/root.
-    Für mehrzeilige Logik trmm_run_script_code verwenden. Ohne confirm=true nur Vorschau."""
-    a = await _target(agent)
+    Für mehrzeilige Logik trmm_run_script_code verwenden. Ohne confirm=true nur Vorschau.
+    Braucht serverseitig MCP_ALLOW_EXEC=1."""
+    a = await _target(agent, exec_=True)
     sh = _shell_for_agent(a, shell)
     cmd = (command or "").strip()
     if not cmd:
@@ -102,8 +108,8 @@ async def trmm_run_script_code(
     und liefert stdout, stderr, Exit-Code und Laufzeit.
 
     language: powershell, cmd, python, shell, nushell oder deno. args: Script-Argumente.
-    env_vars: Liste "NAME=wert". Ohne confirm=true nur Vorschau."""
-    a = await _target(agent)
+    env_vars: Liste "NAME=wert". Ohne confirm=true nur Vorschau. Braucht serverseitig MCP_ALLOW_EXEC=1."""
+    a = await _target(agent, exec_=True)
     lang = guard.validate_script_shell(language)
     if _is_windows(a) and lang == "shell":
         raise GuardError("language 'shell' ist für Linux/macOS. Für Windows powershell oder cmd nutzen.")
@@ -146,8 +152,8 @@ async def trmm_run_script(
 
     script_id oder script_name (exakter Name). timeout: 0 = Standard-Timeout des Scripts.
     wait: true = auf Ergebnis warten und Ausgabe liefern, false = nur starten.
-    Ohne confirm=true nur Vorschau (mit Script-Code)."""
-    a = await _target(agent)
+    Ohne confirm=true nur Vorschau (mit Script-Code). Braucht serverseitig MCP_ALLOW_EXEC=1."""
+    a = await _target(agent, exec_=True)
     if script_id:
         sid = guard.validate_positive_int(script_id, "script_id")
     elif script_name.strip():

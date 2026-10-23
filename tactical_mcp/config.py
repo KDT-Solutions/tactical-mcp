@@ -10,9 +10,15 @@ import os
 from dataclasses import dataclass
 
 # Grobe Notbremse gegen offensichtlich zerstörerische Befehle. Sie ersetzt nicht
-# die confirm-Pflicht, verhindert aber, dass ein Tippfehler oder eine falsch
-# verstandene Anweisung eine Platte löscht. Gilt immer, zusätzlich zu
+# die confirm-Pflicht und ist KEINE Sicherheitsgrenze gegen jemanden, der das
+# Token hat oder das Modell per Prompt-Injection steuert - die Sicherheitsgrenze
+# sind MCP_ALLOW_EXEC (Default aus), confirm=true, TRMM_READ_ONLY und
+# PROTECTED_AGENTS. Die Liste verhindert, dass ein Tippfehler oder eine falsch
+# verstandene Anweisung eine Platte löscht, und fängt die gängigen
+# Verschleierungen (encoded commands, Invoke-Expression, Download-Cradles,
+# ^-Escapes, Flag-Reihenfolge). Gilt immer, zusätzlich zu
 # BLOCKED_COMMAND_PATTERNS - per Env lässt sie sich nicht abschalten.
+# Geprüft wird der Rohtext und normalisierte Varianten (siehe guard.normalized_variants).
 DEFAULT_BLOCKED_COMMAND_PATTERNS = (
     r"\bformat(\.com)?\s+[a-z]:",                      # format C:
     r"\bformat-volume\b",
@@ -24,14 +30,29 @@ DEFAULT_BLOCKED_COMMAND_PATTERNS = (
     r"\bwmic(\.exe)?\s+shadowcopy\s+delete",
     r"\bwbadmin(\.exe)?\s+delete\b",
     r"\bbcdedit(\.exe)?\s+/(delete|deletevalue)\b",
-    r"\brm\s+(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)[a-z]*\s+/(\s|$|\*)",  # rm -rf /
+    # rm -rf / in jeder Flag-Reihenfolge und Schreibweise (-rf, -fr, -r -f, --recursive --force,
+    # --no-preserve-root dazwischen); Ziel "/" oder "/*"
+    r"\brm\s+(?=(?:-\S+\s+)*-(?:[a-z]*r|-recursive))(?=(?:-\S+\s+)*-(?:[a-z]*f|-force))(?:-\S+\s+)+[\"']?/[\"']?(\s|$|\*)",
     r"\bmkfs(\.[a-z0-9]+)?\b",
     r"\bdd\s+[^|]*\bof=/dev/(sd|nvme|hd|vd|xvd)",
-    r"\bremove-item\b[^|;]*-recurse[^|;]*\s[\"']?[a-z]:\\?[\"']?(\s|$)",  # Remove-Item -Recurse C:\
+    # Remove-Item ... -Recurse ... C:\ in beliebiger Reihenfolge (Pfad vor oder nach den Flags)
+    r"\bremove-item\b(?=[^|;]*\s-r[a-z]*\b)[^|;]*\s[\"']?[a-z]:\\?\*?[\"']?(\s|$|;|\|)",
+    # Get-ChildItem C:\ | Remove-Item (Laufwerkswurzel über die Pipeline löschen)
+    r"\b(get-childitem|gci|ls|dir)\b[^|]*\s[\"']?[a-z]:\\?\*?[\"']?(\s[^|]*)?\|\s*(remove-item|ri|rm|del|erase)\b",
     r"\b(rd|rmdir)\s+/s\s+(/q\s+)?[\"']?[a-z]:\\?[\"']?(\s|$)",          # rd /s C:\
     r"\bdel\s+(/[a-z]\s+)*[\"']?[a-z]:\\\*",                              # del C:\*
     r"tacticalagent.*unins|unins.*tacticalagent",                          # Agent nicht deinstallieren
     r"\b(sc(\.exe)?\s+delete|remove-service)\s+[\"']?(tacticalrmm|tacticalagent|mesh\s*agent)",
+    # Verschleierung: encoded commands (-e/-ec/-enc/-EncodedCommand mit Base64) an powershell/pwsh
+    r"\b(powershell|pwsh)(\.exe)?\b[^|;&]*\s-e(c|n[a-z]*)?\s+[\"']?[a-z0-9+/=]{16,}",
+    r"(^|\s)-encodedcommand\b",
+    # Verschleierung: Invoke-Expression / iex / [scriptblock]::Create (Code aus Strings ausführen)
+    r"(^|[^\w-])(invoke-expression|iex)\b",
+    r"\[scriptblock\]\s*::\s*create\s*\(",
+    # Download-Cradles: Download direkt in eine Shell pipen oder als Befehlssubstitution ausführen
+    r"\b(invoke-webrequest|iwr|invoke-restmethod|irm|curl|wget)\b[^|]*\|\s*(iex|invoke-expression|sh|bash|zsh|dash|powershell|pwsh|cmd|python[0-9.]*|perl)\b",
+    r"\b(sh|bash|zsh|dash|eval|source)\s+(-[a-z]+\s+)*[\"']?(\$\(|<\()\s*(curl|wget)\b",
+    r"\b(downloadstring|downloadfile)\s*\(",
 )
 
 
@@ -68,6 +89,9 @@ class Settings:
     trmm_tls_verify: bool
     mcp_api_key: str
     read_only: bool = False
+    # MCP_ALLOW_EXEC: ohne diesen Schalter sind Befehls- und Script-Ausführung
+    # sowie das Anlegen von Scripts, Script-Checks und Script-Tasks deaktiviert.
+    allow_exec: bool = False
     protected_agents: tuple[str, ...] = ()
     blocked_command_patterns: tuple[str, ...] = DEFAULT_BLOCKED_COMMAND_PATTERNS
     max_timeout: int = 600
@@ -84,8 +108,9 @@ def load_settings() -> Settings:
         trmm_url=env.get("TRMM_URL", "").strip().rstrip("/"),
         trmm_api_key=env.get("TRMM_API_KEY", "").strip(),
         trmm_tls_verify=_bool(env.get("TRMM_TLS_VERIFY"), True),
-        mcp_api_key=env.get("MCP_API_KEY", ""),
+        mcp_api_key=env.get("MCP_API_KEY", "").strip(),
         read_only=_bool(env.get("TRMM_READ_ONLY"), False),
+        allow_exec=_bool(env.get("MCP_ALLOW_EXEC"), False),
         protected_agents=_list(env.get("PROTECTED_AGENTS")),
         blocked_command_patterns=DEFAULT_BLOCKED_COMMAND_PATTERNS + _patterns(env.get("BLOCKED_COMMAND_PATTERNS")),
         max_timeout=min(3600, max(30, _int(env.get("MAX_TIMEOUT"), 600))),

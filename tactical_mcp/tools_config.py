@@ -1,9 +1,10 @@
-"""Konfigurierende Tools: Scripts in der Bibliothek anlegen/ändern, Checks und
+"""Konfigurierende Tools: Scripts in der Bibliothek anlegen, Checks und
 automatisierte Tasks auf Agents oder Policies anlegen, Policies auflisten.
 
 Gleiche Regeln wie in tools_exec: TRMM_READ_ONLY sperrt alles, geschützte Agents
-werden blockiert, ohne confirm=true nur Vorschau, Script-Code läuft durch die
-Sperrliste. Gelöscht wird nichts.
+werden blockiert (auch über Policies, siehe _check_policy_allowed), ohne
+confirm=true nur Vorschau, Script-Code läuft durch die Sperrliste, alles braucht
+MCP_ALLOW_EXEC=1. Bestehende Scripts werden nicht geändert und nichts gelöscht.
 """
 
 from __future__ import annotations
@@ -11,7 +12,8 @@ from __future__ import annotations
 from typing import Any
 
 from . import guard
-from .app import agent_label, resolve_agent, tool, trmm
+from .app import agent_label, list_agents_brief, resolve_agent, tool, trmm
+from .config import settings
 from .errors import GuardError
 
 PLATFORMS = {"windows", "linux", "darwin"}
@@ -37,10 +39,81 @@ def _codes(values: list[int] | None, label: str) -> list[int]:
 
 
 async def _target_agent(agent: str) -> dict[str, Any]:
-    guard.require_writable()
+    guard.require_exec()
     a = await resolve_agent(agent)
     guard.check_agent_allowed(a)
     return a
+
+
+def _same(a: Any, b: Any) -> bool:
+    return str(a or "").strip().lower() == str(b or "").strip().lower()
+
+
+async def policy_agents(policy_id: int) -> list[dict[str, Any]]:
+    """Agents, auf denen eine Policy (mindestens) wirkt - bewusst grosszügig:
+    direkt zugewiesene Agents, alle Agents der zugewiesenen Sites und Clients
+    (nach Server/Workstation) und bei Default-Policies alle Agents des Typs.
+    Vererbungs-Ausnahmen (block_policy_inheritance) werden ignoriert, damit im
+    Zweifel zu viele und nicht zu wenige Agents geschützt sind.
+    Endpunkt: GET /automation/policies/<id>/related/ (Felder agents,
+    server_clients, workstation_clients, server_sites, workstation_sites,
+    default_server_policy, default_workstation_policy)."""
+    rel = await trmm().get(f"/automation/policies/{policy_id}/related/")
+    if not isinstance(rel, dict):
+        raise GuardError(f"Zuordnung der Policy {policy_id} konnte nicht gelesen werden (unerwartete Antwort).")
+    agents = await list_agents_brief()
+    out: dict[str, dict[str, Any]] = {}
+
+    def add(a: dict[str, Any]) -> None:
+        out[str(a.get("agent_id") or a.get("id") or a.get("hostname"))] = a
+
+    direct = rel.get("agents") or []
+    for d in direct:
+        for a in agents:
+            if (d.get("agent_id") and _same(d.get("agent_id"), a.get("agent_id"))) or (
+                d.get("id") is not None and str(d.get("id")) == str(a.get("id"))
+            ) or (d.get("hostname") and _same(d.get("hostname"), a.get("hostname"))):
+                add(a)
+    for kind in ("server", "workstation"):
+        clients = {str(c.get("name", "")).lower() for c in (rel.get(f"{kind}_clients") or [])}
+        sites = {
+            (str(sx.get("client_name", "")).lower() or None, str(sx.get("name", "")).lower())
+            for sx in (rel.get(f"{kind}_sites") or [])
+        }
+        default = bool(rel.get(f"default_{kind}_policy"))
+        for a in agents:
+            if not _same(a.get("monitoring_type"), kind):
+                continue
+            cname = str(a.get("client_name", "")).lower()
+            sname = str(a.get("site_name", "")).lower()
+            if default or cname in clients or (cname, sname) in sites or (None, sname) in sites:
+                add(a)
+    return list(out.values())
+
+
+async def _check_policy_allowed(policy_id: int) -> dict[str, Any]:
+    """Policy-Ziel: ablehnen, wenn ein geschützter Agent von der Policy betroffen wäre.
+    Lässt sich die Zuordnung nicht lesen (z.B. fehlendes Recht), wird abgelehnt."""
+    pid = guard.validate_positive_int(policy_id, "policy_id")
+    if not settings().protected_agents:
+        return {"policy_id": pid}
+    try:
+        affected = await policy_agents(pid)
+    except GuardError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - fail closed, Details im Log
+        raise GuardError(
+            f"Zuordnung der Policy {pid} konnte nicht geprüft werden ({type(exc).__name__}); "
+            "wegen PROTECTED_AGENTS wird das Policy-Ziel abgelehnt. Stattdessen einzelne Agents angeben."
+        ) from None
+    blocked = [a for a in affected if guard.agent_protection(a.get("hostname", ""), a.get("agent_id", ""))]
+    if blocked:
+        names = ", ".join(sorted(str(a.get("hostname")) for a in blocked)[:20])
+        raise GuardError(
+            f"Policy {pid} wirkt auf geschützte Agents ({names}, PROTECTED_AGENTS). "
+            "Checks/Tasks darauf nur direkt in Tactical oder auf einzelnen, nicht geschützten Agents anlegen."
+        )
+    return {"policy_id": pid, "policy_agents": len(affected)}
 
 
 # ---------------------------------------------------------------------------
@@ -62,11 +135,19 @@ async def trmm_save_script(
     run_as_user: bool = False,
     confirm: bool = False,
 ) -> dict[str, Any]:
-    """Script in der Tactical-Bibliothek anlegen (script_id=0) oder ändern (script_id>0).
+    """Neues Script in der Tactical-Bibliothek anlegen.
 
     language: powershell, cmd, python, shell, nushell, deno. platforms: windows, linux, darwin.
-    Der Code läuft durch die Sperrliste. Ohne confirm=true nur Vorschau."""
-    guard.require_writable()
+    Der Code läuft durch die Sperrliste. Ohne confirm=true nur Vorschau. Braucht MCP_ALLOW_EXEC=1.
+    Bestehende Scripts (script_id>0) werden bewusst nicht geändert: ein Script kann in Checks und
+    Tasks geschützter Agents hängen, und ein Update würde dort unbemerkt anderen Code ausführen.
+    Änderungen an bestehenden Scripts nur direkt in Tactical."""
+    guard.require_exec()
+    if script_id:
+        raise GuardError(
+            "Bestehende Scripts werden über tactical-mcp nicht geändert (script_id muss 0 sein). "
+            "Neues Script anlegen oder die Änderung direkt in Tactical machen."
+        )
     lang = guard.validate_script_shell(language)
     if not (name or "").strip():
         raise GuardError("name ist leer.")
@@ -82,23 +163,10 @@ async def trmm_save_script(
         "script_body": body, "args": arg_list, "env_vars": [], "default_timeout": t,
         "supported_platforms": plats, "run_as_user": bool(run_as_user),
     }
-    sid = int(script_id or 0)
-    existing = None
-    if sid:
-        sid = guard.validate_positive_int(sid, "script_id")
-        existing = await trmm().get(f"/scripts/{sid}/") or {}
-        if existing.get("script_type") == "builtin":
-            raise GuardError("Community-Scripts werden nicht geändert. Neues Script anlegen (script_id=0).")
     if not confirm:
-        return guard.preview(
-            "save_script", mode="update" if sid else "create", script_id=sid or None,
-            previous_name=(existing or {}).get("name"), **{**payload, "script_body": guard.truncate(body, 8000)},
-        )
-    if sid:
-        r = await trmm().put(f"/scripts/{sid}/", json=payload)
-    else:
-        r = await trmm().post("/scripts/", json=payload)
-    return {"executed": True, "action": "save_script", "mode": "update" if sid else "create", "result": guard.truncate(r)}
+        return guard.preview("save_script", mode="create", **{**payload, "script_body": guard.truncate(body, 8000)})
+    r = await trmm().post("/scripts/", json=payload)
+    return {"executed": True, "action": "save_script", "mode": "create", "result": guard.truncate(r)}
 
 
 # ---------------------------------------------------------------------------
@@ -135,8 +203,9 @@ async def trmm_add_script_check(
     """Script Check auf einem Agent ODER in einer Policy anlegen.
 
     Exit 0 = bestanden, Codes in warning_return_codes/info_return_codes = Warnung/Info, sonst Fehler.
-    Ohne confirm=true nur Vorschau."""
-    guard.require_writable()
+    Ohne confirm=true nur Vorschau. Braucht MCP_ALLOW_EXEC=1. Policy-Ziele werden abgelehnt,
+    wenn die Policy auf geschützte Agents wirkt."""
+    guard.require_exec()
     if bool(agent.strip()) == bool(policy_id):
         raise GuardError("Genau eines angeben: agent oder policy_id.")
     sid = guard.validate_positive_int(script_id, "script_id")
@@ -163,9 +232,8 @@ async def trmm_add_script_check(
         payload["agent"] = a["agent_id"]
         target = {"agent": agent_label(a)}
     else:
-        pid = guard.validate_positive_int(policy_id, "policy_id")
-        payload["policy"] = pid
-        target = {"policy_id": pid}
+        target = await _check_policy_allowed(policy_id)
+        payload["policy"] = target["policy_id"]
     if not confirm:
         return guard.preview("add_script_check", script_name=s.get("name"), **{**payload, **target})
     r = await trmm().post("/checks/", json=payload)
@@ -192,10 +260,11 @@ async def trmm_add_monthly_script_task(
     """Monatlichen Task anlegen, der ein Bibliotheks-Script ausführt (auf Agent ODER Policy).
 
     day_of_month: 1-31, time_hhmm: z.B. "02:30" (Zeit des Agents). timeout höchstens MAX_TIMEOUT.
-    Ohne confirm=true nur Vorschau.
+    Ohne confirm=true nur Vorschau. Braucht MCP_ALLOW_EXEC=1. Policy-Ziele werden abgelehnt,
+    wenn die Policy auf geschützte Agents wirkt.
     Hinweis: Feldnamen für task_type=monthly vor dem ersten Einsatz gegen die eigene
     Tactical-Version prüfen (API-Schema), sie haben sich zwischen Versionen geändert."""
-    guard.require_writable()
+    guard.require_exec()
     if bool(agent.strip()) == bool(policy_id):
         raise GuardError("Genau eines angeben: agent oder policy_id.")
     if not (name or "").strip():
@@ -227,8 +296,8 @@ async def trmm_add_monthly_script_task(
         payload["agent"] = a["agent_id"]
         target = {"agent": agent_label(a)}
     else:
-        payload["policy"] = guard.validate_positive_int(policy_id, "policy_id")
-        target = {"policy_id": payload["policy"]}
+        target = await _check_policy_allowed(policy_id)
+        payload["policy"] = target["policy_id"]
     if not confirm:
         return guard.preview("add_monthly_script_task", script_name=s.get("name"), **{**payload, **target})
     r = await trmm().post("/tasks/", json=payload)

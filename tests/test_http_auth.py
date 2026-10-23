@@ -3,7 +3,7 @@
 import pytest
 from starlette.testclient import TestClient
 
-API_KEY = "test-mcp-api-key"
+API_KEY = "test-mcp-api-key-0123456789abcdef0123456789abcdef"
 HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 
 
@@ -34,6 +34,25 @@ def test_refuses_start_without_api_key(server, monkeypatch):
         server.main()
     with pytest.raises(RuntimeError, match="MCP_API_KEY"):
         server._build_http_app("")
+    # Nur Leerzeichen zählt nicht als Token
+    with pytest.raises(RuntimeError, match="fehlt"):
+        server._build_http_app("   ")
+
+
+def test_refuses_short_api_key(server, monkeypatch):
+    with pytest.raises(RuntimeError, match="zu kurz"):
+        server._build_http_app("x" * 31)
+    monkeypatch.setenv("MCP_API_KEY", "kurz")
+    with pytest.raises(RuntimeError, match="zu kurz"):
+        server.main()
+    assert server._checked_api_key("  " + "y" * 32 + "\n") == "y" * 32
+
+
+def test_token_is_trimmed(server):
+    app = server._build_http_app(f"  {API_KEY}\n")
+    with TestClient(app, base_url="https://tactical-mcp.example.com") as client:
+        assert client.get("/healthz", headers={"Authorization": f"Bearer {API_KEY}"}).status_code == 200
+        assert client.get("/healthz", headers={"Authorization": f"Bearer {API_KEY}x"}).status_code == 401
 
 
 def test_rejects_missing_and_wrong_token(http_client):

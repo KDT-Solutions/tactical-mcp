@@ -15,20 +15,31 @@ services:
       - TRMM_TLS_VERIFY=${TRMM_TLS_VERIFY:-1}
       # 1 = nur lesen, alle ausführenden/ändernden Tools gesperrt
       - TRMM_READ_ONLY=${TRMM_READ_ONLY:-0}
+      # 1 = Befehle, Ad-hoc-Code, Bibliotheks-Scripts ausführen und Scripts/Script-Checks/
+      # Script-Tasks anlegen erlauben. Default 0: diese Tools melden einen Fehler.
+      - MCP_ALLOW_EXEC=${MCP_ALLOW_EXEC:-0}
       # Hostnamen/Agent-IDs (fnmatch-Muster, kommagetrennt), auf denen nichts ausgeführt wird
       - PROTECTED_AGENTS=${PROTECTED_AGENTS:-}
       # Zusätzliche gesperrte Befehlsmuster (Regex, getrennt durch ;;)
       - BLOCKED_COMMAND_PATTERNS=${BLOCKED_COMMAND_PATTERNS:-}
       - MAX_TIMEOUT=${MAX_TIMEOUT:-600}
       - MAX_OUTPUT_CHARS=${MAX_OUTPUT_CHARS:-30000}
-      # Statisches Bearer-Token für den Connector (z.B. openssl rand -hex 32)
+      # Statisches Bearer-Token für den Connector (z.B. openssl rand -hex 32, mindestens 32 Zeichen)
       - MCP_API_KEY=${MCP_API_KEY}
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
     ports:
       # Wie die übrigen MCP-Stacks: NPM leitet auf <Host-IP>:<Host-Port> weiter,
       # TLS macht NPM, Zugriffskontrolle ist das zwingende MCP_API_KEY.
-      - "${MCP_BIND_ADDR:-0.0.0.0}:${MCP_HOST_PORT:-8428}:8000"
+      # Default nur localhost; läuft NPM auf einem anderen Host, MCP_BIND_ADDR auf
+      # die LAN-IP setzen, auf die NPM zeigt (nicht 0.0.0.0).
+      - "${MCP_BIND_ADDR:-127.0.0.1}:${MCP_HOST_PORT:-8428}:8000"
+    # Log-Rotation: das Audit-Log geht auf stdout, ohne Rotation wächst es unbegrenzt.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     read_only: true
     tmpfs:
       - /tmp

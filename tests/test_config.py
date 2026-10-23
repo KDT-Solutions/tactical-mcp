@@ -43,17 +43,24 @@ async def test_save_script_create(mock):
     assert r["executed"] is True and r["mode"] == "create"
 
 
-async def test_save_script_update(script):
-    route = script.put("/scripts/7/").respond(200, json="ok")
-    r = await tools_config.trmm_save_script("Disk Check", "Get-PSDrive D", language="powershell", script_id=7, confirm=True)
-    assert json.loads(route.calls.last.request.content)["script_body"] == "Get-PSDrive D"
-    assert r["mode"] == "update"
+async def test_save_script_refuses_update_of_existing_script(script):
+    """Bestehende Scripts (auch eigene) werden nicht geändert - sie können in Checks/Tasks
+    geschützter Agents hängen. Es wird nicht einmal gelesen, geschweige denn geschrieben."""
+    for sid in (7, 3):
+        with pytest.raises(GuardError, match="nicht geändert"):
+            await tools_config.trmm_save_script("Disk Check", "Get-PSDrive D", language="powershell", script_id=sid, confirm=True)
+        with pytest.raises(GuardError, match="nicht geändert"):
+            await tools_config.trmm_save_script("Disk Check", "Get-PSDrive D", language="powershell", script_id=sid)
+    assert script.calls.call_count == 0
 
 
-async def test_save_script_refuses_community_script(mock):
-    mock.get("/scripts/3/").respond(200, json={"id": 3, "name": "Community", "script_type": "builtin"})
-    with pytest.raises(GuardError, match="Community"):
-        await tools_config.trmm_save_script("x", "echo hi", script_id=3, confirm=True)
+async def test_save_script_needs_allow_exec(mock, monkeypatch):
+    from tactical_mcp import config
+
+    monkeypatch.setenv("MCP_ALLOW_EXEC", "0")
+    config.reset()
+    with pytest.raises(GuardError, match="MCP_ALLOW_EXEC"):
+        await tools_config.trmm_save_script("x", "echo hi", confirm=True)
     assert written(mock) == []
 
 
@@ -117,11 +124,69 @@ async def test_script_check_on_agent(script):
     assert r["executed"] is True and r["script_name"] == "Disk Check"
 
 
+def related(**kw):
+    base = {"agents": [], "server_clients": [], "workstation_clients": [], "server_sites": [],
+            "workstation_sites": [], "default_server_policy": False, "default_workstation_policy": False}
+    return {**base, **kw}
+
+
 async def test_script_check_on_policy(script):
+    script.get("/automation/policies/4/related/").respond(200, json=related(agents=[{"id": 1, "hostname": "PC-OFFICE01"}]))
     route = script.post("/checks/").respond(200, json="ok")
-    await tools_config.trmm_add_script_check(7, policy_id=4, confirm=True)
+    r = await tools_config.trmm_add_script_check(7, policy_id=4, confirm=True)
     body = json.loads(route.calls.last.request.content)
     assert body["policy"] == 4 and "agent" not in body
+    assert r["policy_agents"] == 1
+
+
+@pytest.mark.parametrize("rel", [
+    related(agents=[{"id": 4, "hostname": "SRV-DC01"}]),                      # direkt zugewiesen
+    related(agents=[{"hostname": "srv-dc01"}]),                               # nur Hostname
+    related(server_sites=[{"id": 2, "name": "Lager", "client_name": "Muster GmbH"}]),  # über die Site
+    related(server_sites=[{"id": 2, "name": "Lager"}]),                       # Site ohne client_name
+    related(server_clients=[{"id": 2, "name": "Muster GmbH"}]),              # über den Client
+    related(default_server_policy=True),                                      # Default-Policy für Server
+])
+async def test_policy_target_rejected_when_protected_agent_affected(script, rel):
+    script.get("/automation/policies/4/related/").respond(200, json=rel)
+    with pytest.raises(GuardError, match="geschützte Agents"):
+        await tools_config.trmm_add_script_check(7, policy_id=4, confirm=True)
+    with pytest.raises(GuardError, match="geschützte Agents"):
+        await tools_config.trmm_add_monthly_script_task("x", 7, 1, "02:00", policy_id=4, confirm=True)
+    assert written(script) == []
+
+
+@pytest.mark.parametrize("rel", [
+    related(workstation_sites=[{"id": 2, "name": "Lager", "client_name": "Muster GmbH"}]),  # nur Workstations in Lager
+    related(workstation_clients=[{"id": 2, "name": "Muster GmbH"}]),
+    related(default_workstation_policy=True),
+    related(agents=[{"id": 2, "hostname": "nas-backup"}]),
+])
+async def test_policy_target_allowed_without_protected_agents(script, rel):
+    script.get("/automation/policies/4/related/").respond(200, json=rel)
+    route = script.post("/checks/").respond(200, json="ok")
+    await tools_config.trmm_add_script_check(7, policy_id=4, confirm=True)
+    assert route.called
+
+
+async def test_policy_target_rejected_when_related_unreadable(script):
+    script.get("/automation/policies/4/related/").respond(403, json={"detail": "nope"})
+    with pytest.raises(GuardError, match="nicht geprüft"):
+        await tools_config.trmm_add_script_check(7, policy_id=4, confirm=True)
+    script.get("/automation/policies/5/related/").respond(200, json=[])
+    with pytest.raises(GuardError, match="nicht gelesen"):
+        await tools_config.trmm_add_script_check(7, policy_id=5, confirm=True)
+    assert written(script) == []
+
+
+async def test_policy_check_skipped_without_protected_agents(script, monkeypatch):
+    from tactical_mcp import config
+
+    monkeypatch.setenv("PROTECTED_AGENTS", "")
+    config.reset()
+    route = script.post("/checks/").respond(200, json="ok")
+    r = await tools_config.trmm_add_script_check(7, policy_id=4, confirm=True)
+    assert route.called and r["policy_id"] == 4
 
 
 async def test_script_check_preview(script):
@@ -182,6 +247,7 @@ async def test_monthly_task_on_agent(script):
 
 
 async def test_monthly_task_on_policy_preview(script):
+    script.get("/automation/policies/2/related/").respond(200, json=related())
     r = await tools_config.trmm_add_monthly_script_task("Monatscheck", 7, 31, "23:59", policy_id=2)
     assert r["preview"] is True and r["policy_id"] == 2 and r["monthly_days_of_month"] == 1 << 30
     assert written(script) == []
@@ -203,3 +269,18 @@ async def test_monthly_task_invalid_day(script, day):
 async def test_monthly_task_needs_exactly_one_target(script):
     with pytest.raises(GuardError, match="Genau eines"):
         await tools_config.trmm_add_monthly_script_task("x", 7, 1, "02:00", confirm=True)
+
+
+async def test_config_tools_need_allow_exec(script, monkeypatch):
+    from tactical_mcp import config
+
+    monkeypatch.setenv("MCP_ALLOW_EXEC", "0")
+    config.reset()
+    with pytest.raises(GuardError, match="MCP_ALLOW_EXEC"):
+        await tools_config.trmm_add_script_check(7, agent="PC-OFFICE01", confirm=True)
+    with pytest.raises(GuardError, match="MCP_ALLOW_EXEC"):
+        await tools_config.trmm_add_monthly_script_task("x", 7, 1, "02:00", agent="PC-OFFICE01", confirm=True)
+    assert written(script) == []
+    # Lesen geht weiterhin
+    script.get("/automation/policies/").respond(200, json=[])
+    assert await tools_config.trmm_list_policies() == []

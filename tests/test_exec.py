@@ -29,6 +29,43 @@ async def test_preview_shows_env_names_only(agents):
     assert "geheim" not in json.dumps(r)
 
 
+def test_audit_log_redacts_env_args_and_command():
+    from tactical_mcp import guard
+
+    params = {
+        "agent": "pc1",
+        "command": "net user admin Password=Geheim123 /add",
+        "code": "x" * 500,
+        "args": ["-p", "secret1", "--password=xyz", "-v"],
+        "env_vars": ["ADMIN_PW=abc", "X=1"],
+        "api_token": "zzz",
+        "note": "Konto angelegt, token: abc123",
+    }
+    out = guard.redact_params(params)
+    text = json.dumps(out)
+    for secret in ("Geheim123", "secret1", "xyz", "abc", "zzz", "abc123"):
+        assert secret not in text
+    assert out["env_vars"] == ["ADMIN_PW", "X"]
+    assert out["args"] == ["-p", "***", "--password=***", "-v"]
+    assert out["api_token"] == "***"
+    assert len(out["code"]) < 300 and "gekürzt" in out["code"]
+    assert out["agent"] == "pc1"
+
+
+async def test_audit_log_line_without_env_values(agents, capsys):
+    agents.post(f"/scripts/{WIN_ID}/test/").respond(200, json={"stdout": "", "stderr": "", "retcode": 0})
+    from tactical_mcp.app import mcp
+
+    await mcp.call_tool("trmm_run_script_code", {
+        "agent": "PC-OFFICE01", "code": "echo %A%", "language": "cmd", "env_vars": ["A=streng-geheim"],
+        "args": ["--password", "pw-geheim"], "confirm": True,
+    })
+    log = capsys.readouterr().out
+    assert "trmm_run_script_code" in log
+    assert "streng-geheim" not in log and "pw-geheim" not in log
+    assert '"env_vars": ["A"]' in log
+
+
 async def test_run_saved_script_by_name(agents):
     agents.get("/scripts/").respond(200, json=[{"id": 7, "name": "Clear Print Spooler"}, {"id": 8, "name": "Other"}])
     agents.get("/scripts/7/").respond(200, json={
