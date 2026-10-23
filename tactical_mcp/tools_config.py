@@ -167,7 +167,7 @@ async def trmm_add_script_check(
         payload["policy"] = pid
         target = {"policy_id": pid}
     if not confirm:
-        return guard.preview("add_script_check", **target, script_name=s.get("name"), **payload)
+        return guard.preview("add_script_check", script_name=s.get("name"), **{**payload, **target})
     r = await trmm().post("/checks/", json=payload)
     return {"executed": True, "action": "add_script_check", **target, "script_name": s.get("name"), "result": guard.truncate(r)}
 
@@ -186,12 +186,13 @@ async def trmm_add_monthly_script_task(
     agent: str = "",
     policy_id: int = 0,
     args: list[str] | None = None,
-    timeout: int = 3600,
+    timeout: int = 600,
     confirm: bool = False,
 ) -> dict[str, Any]:
     """Monatlichen Task anlegen, der ein Bibliotheks-Script ausführt (auf Agent ODER Policy).
 
-    day_of_month: 1-31, time_hhmm: z.B. "02:30" (Zeit des Agents). Ohne confirm=true nur Vorschau.
+    day_of_month: 1-31, time_hhmm: z.B. "02:30" (Zeit des Agents). timeout höchstens MAX_TIMEOUT.
+    Ohne confirm=true nur Vorschau.
     Hinweis: Feldnamen für task_type=monthly vor dem ersten Einsatz gegen die eigene
     Tactical-Version prüfen (API-Schema), sie haben sich zwischen Versionen geändert."""
     guard.require_writable()
@@ -207,11 +208,12 @@ async def trmm_add_monthly_script_task(
     if not 1 <= day <= 31:
         raise GuardError("day_of_month muss zwischen 1 und 31 liegen.")
     try:
-        hh, mm = (int(x) for x in time_hhmm.split(":"))
-        assert 0 <= hh <= 23 and 0 <= mm <= 59
-    except Exception as exc:  # noqa: BLE001
+        hh, mm = (int(x) for x in (time_hhmm or "").split(":"))
+    except ValueError as exc:
         raise GuardError("time_hhmm im Format HH:MM angeben, z.B. 02:30.") from exc
-    t = guard.validate_timeout(timeout, 3600)
+    if not (0 <= hh <= 23 and 0 <= mm <= 59):
+        raise GuardError("time_hhmm im Format HH:MM angeben, z.B. 02:30.")
+    t = guard.validate_timeout(timeout, 600)
     payload: dict[str, Any] = {
         "name": name.strip(), "task_type": "monthly", "enabled": True,
         "run_time_date": f"2026-01-01T{hh:02d}:{mm:02d}:00",
@@ -228,6 +230,6 @@ async def trmm_add_monthly_script_task(
         payload["policy"] = guard.validate_positive_int(policy_id, "policy_id")
         target = {"policy_id": payload["policy"]}
     if not confirm:
-        return guard.preview("add_monthly_script_task", **target, script_name=s.get("name"), **payload)
+        return guard.preview("add_monthly_script_task", script_name=s.get("name"), **{**payload, **target})
     r = await trmm().post("/tasks/", json=payload)
     return {"executed": True, "action": "add_monthly_script_task", **target, "result": guard.truncate(r)}
