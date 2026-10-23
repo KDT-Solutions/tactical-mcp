@@ -16,7 +16,7 @@ import os
 import sys
 
 # Registrierung der Tools passiert beim Import der Module.
-from . import tools_exec, tools_read  # noqa: F401
+from . import tools_config, tools_exec, tools_read  # noqa: F401
 from .app import mcp
 from .version import __version__
 
