@@ -43,7 +43,5 @@ services:
     read_only: true
     tmpfs:
       - /tmp
-    # Kein security_opt: Portainer lässt das nur für Admin-Benutzer zu, der Stack
+    # Kein security_opt/cap_drop: Portainer lässt beides nur für Admin-Benutzer zu, der Stack
     # soll aber auch über den nicht-admin Benutzer von infra-mcp deploybar sein.
-    cap_drop:
-      - ALL
