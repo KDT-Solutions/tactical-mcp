@@ -112,7 +112,7 @@ Konfigurieren (alle mit `confirm` und `MCP_ALLOW_EXEC`):
 | `trmm_save_script` | Neues Script in der Bibliothek anlegen (keine Updates bestehender Scripts) |
 | `trmm_list_policies` | Automation-Policies auflisten (lesend) |
 | `trmm_add_script_check` | Script Check auf einem Agent oder einer Policy anlegen |
-| `trmm_add_monthly_script_task` | Monatlichen Script-Task auf einem Agent oder einer Policy anlegen |
+| `trmm_add_monthly_script_task` | Monatlichen Script-Task auf einem Agent oder einer Policy anlegen. Nur Windows: Der Linux/macOS-Agent führt geplante Tasks nicht aus, Linux-Agents werden deshalb abgelehnt |
 
 ## Konfiguration
 

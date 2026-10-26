@@ -315,3 +315,14 @@ async def test_task_timeout_env_is_capped(monkeypatch, mock):
     monkeypatch.setenv("MAX_TASK_TIMEOUT", "999999")
     config.reset()
     assert config.settings().max_task_timeout == 86400
+
+
+async def test_monthly_task_rejects_linux_agent(script):
+    with pytest.raises(GuardError, match="nur auf Windows-Agents"):
+        await tools_config.trmm_add_monthly_script_task("Scan", 7, 1, "02:00", agent="nas-backup", confirm=True)
+    assert written(script) == []
+
+
+async def test_monthly_task_preview_rejects_linux_agent(script):
+    with pytest.raises(GuardError):
+        await tools_config.trmm_add_monthly_script_task("Scan", 7, 1, "02:00", agent="nas-backup")

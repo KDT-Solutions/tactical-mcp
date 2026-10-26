@@ -263,6 +263,9 @@ async def trmm_add_monthly_script_task(
 ) -> dict[str, Any]:
     """Monatlichen Task anlegen, der ein Bibliotheks-Script ausführt (auf Agent ODER Policy).
 
+    Nur Windows-Agents: Der Tactical-Agent für Linux/macOS führt geplante Tasks nicht aus
+    (Linux-Agents werden abgelehnt; in Policies wirkt der Task nur auf die Windows-Agents).
+
     day_of_month: 1-31, time_hhmm: z.B. "02:30" (Zeit des Agents). timeout höchstens MAX_TASK_TIMEOUT (Standard 14400 s).
     Ohne confirm=true nur Vorschau. Braucht MCP_ALLOW_EXEC=1. Policy-Ziele werden abgelehnt,
     wenn die Policy auf geschützte Agents wirkt.
@@ -297,6 +300,13 @@ async def trmm_add_monthly_script_task(
     }
     if agent.strip():
         a = await _target_agent(agent)
+        plat = str(a.get("plat") or "").lower()
+        if plat != "windows":
+            raise GuardError(
+                f"Tactical führt geplante Tasks nur auf Windows-Agents aus; der {plat or 'unbekannte'}-Agent "
+                "würde den Task als synchronisiert melden, aber nie starten. Zeitplan auf dem Gerät selbst "
+                "einrichten (z.B. cron oder DSM-Aufgabenplanung)."
+            )
         payload["agent"] = a["agent_id"]
         target = {"agent": agent_label(a)}
     else:
