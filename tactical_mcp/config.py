@@ -95,6 +95,7 @@ class Settings:
     protected_agents: tuple[str, ...] = ()
     blocked_command_patterns: tuple[str, ...] = DEFAULT_BLOCKED_COMMAND_PATTERNS
     max_timeout: int = 600
+    max_task_timeout: int = 14400
     max_output_chars: int = 30000
 
     def secret_values(self) -> tuple[str, ...]:
@@ -114,6 +115,8 @@ def load_settings() -> Settings:
         protected_agents=_list(env.get("PROTECTED_AGENTS")),
         blocked_command_patterns=DEFAULT_BLOCKED_COMMAND_PATTERNS + _patterns(env.get("BLOCKED_COMMAND_PATTERNS")),
         max_timeout=min(3600, max(30, _int(env.get("MAX_TIMEOUT"), 600))),
+        # Für Bibliotheks-Scripts und geplante Tasks: Tactical führt sie selbst aus, der MCP wartet nicht darauf.
+        max_task_timeout=min(86400, max(600, _int(env.get("MAX_TASK_TIMEOUT"), 14400))),
         max_output_chars=max(2000, _int(env.get("MAX_OUTPUT_CHARS"), 30000)),
     )
 

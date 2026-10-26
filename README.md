@@ -127,6 +127,7 @@ Konfigurieren (alle mit `confirm` und `MCP_ALLOW_EXEC`):
 | `PROTECTED_AGENTS` | nein | z.B. `srv-dc*,srv-rmm` (gilt auch für Policy-Ziele) |
 | `BLOCKED_COMMAND_PATTERNS` | nein | Zusätzliche Regex, getrennt durch `;;` |
 | `MAX_TIMEOUT` | nein | Obergrenze Sekunden pro Aufruf, Default 600 |
+| `MAX_TASK_TIMEOUT` | nein | Obergrenze Sekunden für `default_timeout` von Bibliotheks-Scripts und für geplante Tasks (Tactical führt sie selbst aus), Default 14400, 600 bis 86400 |
 | `MAX_OUTPUT_CHARS` | nein | Ausgaben werden darüber gekürzt (Anfang und Ende bleiben), Default 30000 |
 | `MCP_HOST_PORT` / `MCP_BIND_ADDR` | nein | Host-Port bzw. Bind-Adresse im Compose-File, Default `127.0.0.1:8428` |
 

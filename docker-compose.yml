@@ -23,6 +23,7 @@ services:
       # Zusätzliche gesperrte Befehlsmuster (Regex, getrennt durch ;;)
       - BLOCKED_COMMAND_PATTERNS=${BLOCKED_COMMAND_PATTERNS:-}
       - MAX_TIMEOUT=${MAX_TIMEOUT:-600}
+      - MAX_TASK_TIMEOUT=${MAX_TASK_TIMEOUT:-14400}
       - MAX_OUTPUT_CHARS=${MAX_OUTPUT_CHARS:-30000}
       # Statisches Bearer-Token für den Connector (z.B. openssl rand -hex 32, mindestens 32 Zeichen)
       - MCP_API_KEY=${MCP_API_KEY}

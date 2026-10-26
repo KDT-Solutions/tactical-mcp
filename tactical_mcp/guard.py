@@ -49,12 +49,12 @@ def looks_like_agent_id(value: str) -> bool:
     return bool(_AGENT_ID_RE.match((value or "").strip()))
 
 
-def validate_timeout(value: Any, default: int = 60) -> int:
+def validate_timeout(value: Any, default: int = 60, maximum: int | None = None) -> int:
     try:
         t = int(value) if value not in (None, "") else default
     except (TypeError, ValueError):
         raise GuardError("timeout muss eine Zahl (Sekunden) sein.") from None
-    mx = settings().max_timeout
+    mx = maximum or settings().max_timeout
     if t < 5 or t > mx:
         raise GuardError(f"timeout muss zwischen 5 und {mx} Sekunden liegen.")
     return t

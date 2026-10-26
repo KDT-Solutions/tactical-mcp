@@ -139,6 +139,8 @@ async def trmm_save_script(
 
     language: powershell, cmd, python, shell, nushell, deno. platforms: windows, linux, darwin.
     Der Code läuft durch die Sperrliste. Ohne confirm=true nur Vorschau. Braucht MCP_ALLOW_EXEC=1.
+    default_timeout höchstens MAX_TASK_TIMEOUT (Standard 14400 s); direkt ausgeführt (trmm_run_script)
+    gilt weiterhin MAX_TIMEOUT, dann timeout beim Aufruf angeben.
     Bestehende Scripts (script_id>0) werden bewusst nicht geändert: ein Script kann in Checks und
     Tasks geschützter Agents hängen, und ein Update würde dort unbemerkt anderen Code ausführen.
     Änderungen an bestehenden Scripts nur direkt in Tactical."""
@@ -157,7 +159,7 @@ async def trmm_save_script(
     arg_list = guard.validate_str_list(args, "args")
     guard.check_command_allowed(body, " ".join(arg_list))
     plats = _platforms(platforms)
-    t = guard.validate_timeout(default_timeout, 60)
+    t = guard.validate_timeout(default_timeout, 60, settings().max_task_timeout)
     payload = {
         "name": name.strip(), "shell": lang, "category": category.strip(), "description": description.strip(),
         "script_body": body, "args": arg_list, "env_vars": [], "default_timeout": t,
@@ -261,7 +263,7 @@ async def trmm_add_monthly_script_task(
 ) -> dict[str, Any]:
     """Monatlichen Task anlegen, der ein Bibliotheks-Script ausführt (auf Agent ODER Policy).
 
-    day_of_month: 1-31, time_hhmm: z.B. "02:30" (Zeit des Agents). timeout höchstens MAX_TIMEOUT.
+    day_of_month: 1-31, time_hhmm: z.B. "02:30" (Zeit des Agents). timeout höchstens MAX_TASK_TIMEOUT (Standard 14400 s).
     Ohne confirm=true nur Vorschau. Braucht MCP_ALLOW_EXEC=1. Policy-Ziele werden abgelehnt,
     wenn die Policy auf geschützte Agents wirkt.
     Hinweis: Feldnamen für task_type=monthly vor dem ersten Einsatz gegen die eigene
@@ -284,7 +286,7 @@ async def trmm_add_monthly_script_task(
         raise GuardError("time_hhmm im Format HH:MM angeben, z.B. 02:30.") from exc
     if not (0 <= hh <= 23 and 0 <= mm <= 59):
         raise GuardError("time_hhmm im Format HH:MM angeben, z.B. 02:30.")
-    t = guard.validate_timeout(timeout, 600)
+    t = guard.validate_timeout(timeout, 600, settings().max_task_timeout)
     payload: dict[str, Any] = {
         "name": name.strip(), "task_type": "monthly", "enabled": True,
         "run_time_date": f"2026-01-01T{hh:02d}:{mm:02d}:00",

@@ -284,3 +284,34 @@ async def test_config_tools_need_allow_exec(script, monkeypatch):
     # Lesen geht weiterhin
     script.get("/automation/policies/").respond(200, json=[])
     assert await tools_config.trmm_list_policies() == []
+
+
+# ---------------------------------------------------------------------------
+# Timeouts: Bibliothek und geplante Tasks dürfen länger als MAX_TIMEOUT laufen
+# ---------------------------------------------------------------------------
+
+
+async def test_save_script_allows_task_timeout(mock):
+    route = mock.post("/scripts/").respond(200, json="ok")
+    await tools_config.trmm_save_script("Lang", "sleep 1", language="shell", default_timeout=14400, confirm=True)
+    assert json.loads(route.calls.last.request.content)["default_timeout"] == 14400
+
+
+async def test_save_script_rejects_above_task_timeout(mock):
+    with pytest.raises(GuardError):
+        await tools_config.trmm_save_script("Lang", "sleep 1", language="shell", default_timeout=14401, confirm=True)
+    assert written(mock) == []
+
+
+async def test_monthly_task_allows_long_timeout(script):
+    route = script.post("/tasks/").respond(200, json="ok")
+    await tools_config.trmm_add_monthly_script_task(
+        "Scan", 7, 1, "02:00", agent="PC-OFFICE01", timeout=10800, confirm=True)
+    assert json.loads(route.calls.last.request.content)["actions"][0]["timeout"] == 10800
+
+
+async def test_task_timeout_env_is_capped(monkeypatch, mock):
+    from tactical_mcp import config
+    monkeypatch.setenv("MAX_TASK_TIMEOUT", "999999")
+    config.reset()
+    assert config.settings().max_task_timeout == 86400
