@@ -203,6 +203,8 @@ async def trmm_add_script_check(
     """Script Check auf einem Agent ODER in einer Policy anlegen.
 
     Exit 0 = bestanden, Codes in warning_return_codes/info_return_codes = Warnung/Info, sonst Fehler.
+    Der Schweregrad eines Alarms ergibt sich bei Script Checks in Tactical aus dem Exit-Code
+    (info/warning_return_codes bzw. sonst error); alert_severity wird am Check gespeichert.
     Ohne confirm=true nur Vorschau. Braucht MCP_ALLOW_EXEC=1. Policy-Ziele werden abgelehnt,
     wenn die Policy auf geschützte Agents wirkt."""
     guard.require_exec()

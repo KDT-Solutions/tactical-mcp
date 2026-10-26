@@ -237,22 +237,30 @@ async def trmm_get_event_log(
 
 @tool()
 async def trmm_get_agent_checks(agent: str, only_failing: bool = False) -> dict[str, Any]:
-    """Checks eines Agents mit Status, letzter Ausgabe und Zeitpunkt. only_failing: nur nicht bestandene."""
+    """Checks eines Agents mit Status, letzter Ausgabe und Zeitpunkt. only_failing: nur nicht bestandene.
+
+    alert_severity ist der am Check eingestellte Schweregrad. current_severity ist der Schweregrad
+    des letzten Laufs und wird nur bei nicht bestandenen Checks angezeigt. Bei Script-, CPU-,
+    Memory- und Disk-Checks bestimmt Tactical ihn pro Lauf selbst (Script: Exit-Code in
+    info/warning_return_codes = info/warning, sonst ungleich 0 = error)."""
     a = await resolve_agent(agent)
     checks = await trmm().get(f"/agents/{a['agent_id']}/checks/") or []
     rows = []
     for c in checks:
         res = c.get("check_result") or {}
+        status = res.get("status", c.get("status"))
         row = {
             "id": c.get("id"),
             "name": c.get("readable_desc") or c.get("name"),
             "type": c.get("check_type"),
-            "status": res.get("status", c.get("status")),
-            "alert_severity": res.get("alert_severity", c.get("alert_severity")),
+            "status": status,
+            "alert_severity": c.get("alert_severity"),
             "last_run": res.get("last_run", c.get("last_run")),
             "more_info": guard.truncate(res.get("more_info", c.get("more_info")), 2000),
             "policy": bool(c.get("policy")),
         }
+        if str(status).lower() == "failing" and res.get("alert_severity"):
+            row["current_severity"] = res.get("alert_severity")
         if res.get("stdout") or res.get("stderr"):
             row["stdout"] = guard.truncate(res.get("stdout"), 2000)
             row["stderr"] = guard.truncate(res.get("stderr"), 2000)
